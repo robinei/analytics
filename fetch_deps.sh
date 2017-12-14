@@ -1,0 +1,2 @@
+wget -O mithril.js https://raw.githubusercontent.com/MithrilJS/mithril.js/next/mithril.js
+wget -O mithril.d.ts https://raw.githubusercontent.com/DefinitelyTyped/DefinitelyTyped/master/types/mithril/index.d.ts
