@@ -1,21 +1,44 @@
 import { Aggregator, parseAggregator } from "./aggregator";
-import { Value } from "./expr";
-import { Env } from "./env";
-import { Event } from "./event";
+import { Value, Env } from "./expr";
 import { deepEqual } from "../common/util";
+import { EventName } from "../common/defs";
+
+export interface Event {
+    readonly name: EventName;
+    readonly time: number;
+    readonly [prop: string]: Value;
+}
 
 export interface AnalyticsSpec {
     variables: { [name: string]: Value },
     aggregators: { [name: string]: any[] },
-    triggers: { [name: string]: any[] },
+    triggers: { [name: string]: any },
 }
 
-export class AnalyticsContext implements Env {
-    private readonly aggregators: { [name: string]: Aggregator } = {};
+export class AnalyticsContext {
     private readonly events: Event[] = [];
-
-    private currentVariables: { readonly [name: string]: Value } = {};
+    private readonly aggregators: { [name: string]: Aggregator } = {};
+    private variables: { readonly [name: string]: Value } = {};
     private currentlyProcessingEvent?: Event;
+    private readonly env: Env;
+
+    constructor() {
+        const context = this;
+        this.env = {
+            readEventProp(name: string): Value | undefined {
+                if (!context.currentlyProcessingEvent) {
+                    throw new Error("only call during event processing");
+                }
+                return context.currentlyProcessingEvent[name];
+            },
+            readVariable(name: string): Value | undefined {
+                return context.variables[name];
+            },
+            readAggregator(name: string): Value | undefined {
+                return context.aggregators[name].currentValue;
+            }
+        }
+    }
 
     saveState(): { readonly [name: string]: any } {
         const savedState: { [name: string]: any[] } = {};
@@ -39,21 +62,10 @@ export class AnalyticsContext implements Env {
         return values;
     }
 
-    get event(): Event {
-        if (!this.currentlyProcessingEvent) {
-            throw new Error("only call during event processing");
-        }
-        return this.currentlyProcessingEvent;
-    }
-
-    get variables(): { readonly [name: string]: Value } {
-        return this.currentVariables;
-    }
-
     trackEvent(event: Event): void {
         this.currentlyProcessingEvent = event;
         for (const name in this.aggregators) {
-            this.aggregators[name].processEvent(this);
+            this.aggregators[name].processEvent(this.env);
         }
     }
 
@@ -64,7 +76,7 @@ export class AnalyticsContext implements Env {
         for (const event of this.events) {
             this.currentlyProcessingEvent = event;
             for (const name in this.aggregators) {
-                this.aggregators[name].processEvent(this);
+                this.aggregators[name].processEvent(this.env);
             }
         }
     }
@@ -72,8 +84,8 @@ export class AnalyticsContext implements Env {
     updateWithSpec(spec: AnalyticsSpec) {
         let needReplay = false;
 
-        if (!deepEqual(spec.variables, this.currentVariables)) {
-            this.currentVariables = spec.variables;
+        if (!deepEqual(spec.variables, this.variables)) {
+            this.variables = spec.variables;
         }
 
         for (const name in spec.aggregators) {

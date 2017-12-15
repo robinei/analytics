@@ -1,6 +1,5 @@
 import { AggregatorName, toAggregatorName } from "../common/defs";
-import { Value, Expr, parseExpr } from "./expr";
-import { Env } from "./env";
+import { Value, Env, Expr, parseExpr } from "./expr";
 
 export interface Aggregator {
     readonly sourceCode: any;

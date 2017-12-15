@@ -3,10 +3,15 @@ import {
     PropName, toPropName,
     VariableName, toVariableName,
 } from "../common/defs";
-import { Event } from "./event";
-import { Env } from "./env";
+import { Event } from "./context";
 
 export type Value = string | number | boolean | null;
+
+export interface Env {
+    readEventProp(name: string): Value | undefined;
+    readVariable(name: string): Value | undefined;
+    readAggregator(name: string): Value | undefined;
+}
 
 export interface Expr {
     eval(env: Env): Value;
@@ -19,10 +24,21 @@ class ConstExpr {
     }
 }
 
-class VariableExpr {
-    constructor(private readonly varName: VariableName) {}
+class AggregatorExpr {
+    constructor(private readonly name: string) {}
     eval(env: Env): Value {
-        const value = env.variables[this.varName];
+        const value = env.readAggregator(this.name);
+        if (value === undefined) {
+            return null;
+        }
+        return value;
+    }
+}
+
+class VariableExpr {
+    constructor(private readonly name: VariableName) {}
+    eval(env: Env): Value {
+        const value = env.readVariable(this.name);
         if (value === undefined) {
             return null;
         }
@@ -31,9 +47,9 @@ class VariableExpr {
 }
 
 class PropExpr {
-    constructor(private readonly propName: PropName) {}
+    constructor(private readonly name: PropName) {}
     eval(env: Env): Value {
-        const value = env.event[this.propName];
+        const value = env.readEventProp(this.name);
         if (value === undefined) {
             return null;
         }
@@ -70,11 +86,14 @@ export function parseExpr(form: any): Expr {
         return new ConstExpr(form);
     }
     if (typeof form === "string") {
-        if (form.startsWith("event.")) {
-            return new PropExpr(toPropName(form.slice(6)));
+        if (form.startsWith("aggregators.")) {
+            return new AggregatorExpr(form.slice(12));
         }
         if (form.startsWith("variables.")) {
             return new VariableExpr(toVariableName(form.slice(10)));
+        }
+        if (form.startsWith("event.")) {
+            return new PropExpr(toPropName(form.slice(6)));
         }
         return new ConstExpr(form);
     }
