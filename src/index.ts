@@ -37,7 +37,7 @@ const events: Event[] = [
     },
 ];
 
-const analyticsSpec: AnalyticsSpec = {
+let analyticsSpec: AnalyticsSpec = {
     variables: {
         album_layout_grid_is_default: true,
         album_layout_editable: true,
@@ -78,6 +78,10 @@ context.updateWithSpec(analyticsSpec);
 for (const e of events) {
     context.trackEvent(e);
 }
+
+analyticsSpec = JSON.parse(JSON.stringify(analyticsSpec));
+//analyticsSpec.variables.album_layout_grid_is_default = false;
+context.updateWithSpec(analyticsSpec);
 
 const values = context.currentValues;
 for (const name in values) {

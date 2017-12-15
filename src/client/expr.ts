@@ -79,10 +79,10 @@ class IfExpr {
 }
 
 export function parseExpr(form: any): Expr {
-    if (typeof form == "number") {
+    if (typeof form === "number") {
         return new ConstExpr(form);
     }
-    if (typeof form == "boolean") {
+    if (typeof form === "boolean") {
         return new ConstExpr(form);
     }
     if (typeof form === "string") {

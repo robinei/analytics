@@ -63,6 +63,7 @@ export class AnalyticsContext {
     }
 
     trackEvent(event: Event): void {
+        this.events.push(event);
         this.currentlyProcessingEvent = event;
         for (const name in this.aggregators) {
             this.aggregators[name].processEvent(this.env);
@@ -73,6 +74,10 @@ export class AnalyticsContext {
         for (const name in this.aggregators) {
             this.aggregators[name].reset();
         }
+        if (this.events.length === 0) {
+            return;
+        }
+        console.log("Replaying event log");
         for (const event of this.events) {
             this.currentlyProcessingEvent = event;
             for (const name in this.aggregators) {
@@ -86,6 +91,7 @@ export class AnalyticsContext {
 
         if (!deepEqual(spec.variables, this.variables)) {
             this.variables = spec.variables;
+            needReplay = true;
         }
 
         for (const name in spec.aggregators) {
