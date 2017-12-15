@@ -1,4 +1,8 @@
-import { EventName, PropName, toPropName } from "../common/defs";
+import {
+    EventName,
+    PropName, toPropName,
+    VariableName, toVariableName,
+} from "../common/defs";
 import { Event } from "./event";
 import { Env } from "./env";
 
@@ -12,6 +16,17 @@ class ConstExpr {
     constructor(private readonly value: Value) {}
     eval(env: Env): Value {
         return this.value;
+    }
+}
+
+class VariableExpr {
+    constructor(private readonly varName: VariableName) {}
+    eval(env: Env): Value {
+        const value = env.variables[this.varName];
+        if (value === undefined) {
+            return null;
+        }
+        return value;
     }
 }
 
@@ -57,6 +72,9 @@ export function parseExpr(form: any): Expr {
     if (typeof form === "string") {
         if (form.startsWith("event.")) {
             return new PropExpr(toPropName(form.slice(6)));
+        }
+        if (form.startsWith("variables.")) {
+            return new VariableExpr(toVariableName(form.slice(10)));
         }
         return new ConstExpr(form);
     }

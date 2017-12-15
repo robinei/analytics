@@ -1,4 +1,20 @@
 
+export enum TypeName {
+    string = "string",
+    boolean = "boolean",
+    number = "number",
+}
+
+export enum VariableName {
+    album_layout_grid_is_default = "album_layout_grid_is_default",
+    album_layout_editable = "album_layout_editable",
+}
+
+export const variableTypes: { readonly [name in VariableName]: TypeName } = {
+    album_layout_grid_is_default: TypeName.boolean,
+    album_layout_editable: TypeName.boolean,
+};
+
 export enum AggregatorName {
     select_if = "select_if",
     funnel = "funnel",
@@ -13,18 +29,12 @@ export enum PropName {
     was_signup = "was_signup",
 }
 
-export enum PropType {
-    string = "string",
-    boolean = "boolean",
-    number = "number",
-}
-
-export const propTypes: { readonly [name in PropName]: PropType } = {
-    name: PropType.string,
-    time: PropType.number,
-    platform: PropType.string,
-    app_version: PropType.string,
-    was_signup: PropType.boolean,
+export const propTypes: { readonly [name in PropName]: TypeName } = {
+    name: TypeName.string,
+    time: TypeName.number,
+    platform: TypeName.string,
+    app_version: TypeName.string,
+    was_signup: TypeName.boolean,
 };
 
 export enum EventName {
@@ -47,6 +57,13 @@ export const eventProps: { readonly [name in EventName]: ReadonlyArray<PropName>
 
 function makeEventProps(...props: PropName[]): ReadonlyArray<PropName> {
     return [PropName.name, PropName.time, ...props];
+}
+
+export function toVariableName(name: string): VariableName {
+    if (VariableName.hasOwnProperty(name)) {
+        return name as VariableName;
+    }
+    throw new Error("bad variable name: " + name);
 }
 
 export function toAggregatorName(name: string): AggregatorName {

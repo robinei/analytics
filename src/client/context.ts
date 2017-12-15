@@ -5,6 +5,7 @@ import { Event } from "./event";
 import { deepEqual } from "../common/util";
 
 export interface AnalyticsSpec {
+    variables: { [name: string]: Value },
     aggregators: { [name: string]: any[] },
     triggers: { [name: string]: any[] },
 }
@@ -12,6 +13,8 @@ export interface AnalyticsSpec {
 export class AnalyticsContext implements Env {
     private readonly aggregators: { [name: string]: Aggregator } = {};
     private readonly events: Event[] = [];
+
+    private currentVariables: { readonly [name: string]: Value } = {};
     private currentlyProcessingEvent?: Event;
 
     saveState(): { readonly [name: string]: any } {
@@ -43,6 +46,10 @@ export class AnalyticsContext implements Env {
         return this.currentlyProcessingEvent;
     }
 
+    get variables(): { readonly [name: string]: Value } {
+        return this.currentVariables;
+    }
+
     trackEvent(event: Event): void {
         this.currentlyProcessingEvent = event;
         for (const name in this.aggregators) {
@@ -63,7 +70,11 @@ export class AnalyticsContext implements Env {
     }
 
     updateWithSpec(spec: AnalyticsSpec) {
-        let newAggregators = false;
+        let needReplay = false;
+
+        if (!deepEqual(spec.variables, this.currentVariables)) {
+            this.currentVariables = spec.variables;
+        }
 
         for (const name in spec.aggregators) {
             if (!spec.aggregators.hasOwnProperty(name)) {
@@ -81,7 +92,7 @@ export class AnalyticsContext implements Env {
                 delete this.aggregators[name];
             } else {
                 this.aggregators[name] = newAggregator;
-                newAggregators = true;
+                needReplay = true;
             }
         }
 
@@ -91,7 +102,7 @@ export class AnalyticsContext implements Env {
             }
         }
 
-        if (newAggregators) {
+        if (needReplay) {
             this.replayEventLog();
         }
     }

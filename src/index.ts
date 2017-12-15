@@ -41,7 +41,12 @@ const events: Event[] = [
 ];
 
 const analyticsSpec: AnalyticsSpec = {
+    "variables": {
+        "album_layout_grid_is_default": true,
+        "album_layout_editable": true,
+    },
     "aggregators": {
+        "test": [ "select_if", true, "variables.album_layout_grid_is_default" ],
         "platform": [ "select_if", ["=", "event.name", "platform_changed"], "event.platform" ],
         "app_version": [ "select_if", ["=", "event.name", "app_version_changed"], "event.app_version" ],
         "signup_funnel": [ "funnel",
@@ -61,17 +66,6 @@ const analyticsSpec: AnalyticsSpec = {
 
     }
 };
-
-
-const expr = parseExpr(["if", ["=", "event.app_version", "1.1"], 10, 20]);
-const env: {event:Event} = {
-    event: {
-        name: EventName.app_version_changed,
-        time: 0,
-        app_version: "1.0"
-    }
-};
-console.log("VAL: " + expr.eval(env));
 
 
 const context = new AnalyticsContext();

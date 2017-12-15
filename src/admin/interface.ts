@@ -2,7 +2,7 @@ import * as m from "mithril";
 import {
     AggregatorName,
     PropName,
-    PropType,
+    TypeName,
     EventName,
     eventProps,
     propTypes,
