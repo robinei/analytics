@@ -1,8 +1,10 @@
 import * as m from "./mithril";
+import { Vnode } from "./mithril";
 
 enum AggregatorName {
-    last_value = "last_value",
+    select_if = "select_if",
     funnel = "funnel",
+    state_machine = "state_machine",
 }
 
 enum PropName {
@@ -154,38 +156,38 @@ const EventComponent: m.Component<EventAttrs> = {
 
 type AggregatorExpr = ReadonlyArray<any>;
 
-interface LastValueAggregatorAttrs {
+interface SelectIfAggregatorAttrs {
     onChange(expr: AggregatorExpr): void;
 }
-interface LastValueAggregatorState {
-    eventName?: EventName;
-    propName?: PropName;
+interface SelectIfAggregatorState {
+    eventName: EventName;
+    propName: PropName;
 }
-const LastValueAggregatorComponent: m.Component<LastValueAggregatorAttrs, LastValueAggregatorState> = {
+function onSelectIfAggregatorChanged(vnode: Vnode<SelectIfAggregatorAttrs, SelectIfAggregatorState>): void {
+    if (vnode.state.eventName && vnode.state.propName)  {
+        vnode.attrs.onChange([AggregatorName.select_if, vnode.state.eventName, vnode.state.propName]);                            
+    }
+}
+const SelectIfAggregatorComponent: m.Component<SelectIfAggregatorAttrs, SelectIfAggregatorState> = {
+    oninit(vnode) {
+        vnode.state.eventName = (getKeys(EventName) as EventName[])[0];
+        vnode.state.propName = (getKeys(PropName) as PropName[])[0];
+    },
     view(vnode) {
         return m("div",
             m(EventComponent, {
                 onChange(eventName: EventName) {
                     vnode.state.eventName = eventName;
-                    if (vnode.state.eventName && vnode.state.propName)  {
-                        vnode.attrs.onChange([AggregatorName.last_value, vnode.state.eventName, vnode.state.propName]);                            
-                    }
+                    onSelectIfAggregatorChanged(vnode);
                 }
             }),
-            (() => {
-                if (!vnode.state.eventName) {
-                    return null;
+            m(EventPropertyComponent, {
+                eventName: vnode.state.eventName,
+                onChange(propName: PropName) {
+                    vnode.state.propName = propName;
+                    onSelectIfAggregatorChanged(vnode);
                 }
-                return m(EventPropertyComponent, {
-                    eventName: vnode.state.eventName,
-                    onChange(propName: PropName) {
-                        vnode.state.propName = propName;
-                        if (vnode.state.eventName && vnode.state.propName)  {
-                            vnode.attrs.onChange([AggregatorName.last_value, vnode.state.eventName, vnode.state.propName]);                            
-                        }
-                    }
-                });
-            })()
+            })
         );
     }
 };
@@ -245,8 +247,8 @@ const AggregatorMakerComponent: m.Component<AggregatorMakerAttrs, AggregatorMake
             }),
             (() => {
                 switch (vnode.state.aggregatorName) {
-                    case AggregatorName.last_value:
-                        return m(LastValueAggregatorComponent, {
+                    case AggregatorName.select_if:
+                        return m(SelectIfAggregatorComponent, {
                             onChange: vnode.attrs.onChange
                         });
                     case AggregatorName.funnel:
@@ -278,38 +280,86 @@ m.mount(document.body, AggregatorPage);
 
 
 
-
-
 type Value = string | number | boolean | null;
 
 interface Event {
-    name: EventName;
-    time: number;
-    [prop: string]: Value;
+    readonly name: EventName;
+    readonly time: number;
+    readonly [prop: string]: Value;
 }
+
+interface Env {
+    readonly event: Event;
+}
+
+interface Expr {
+    eval(env: Env): Value;
+}
+class ConstExpr {
+    constructor(private readonly value: Value) {}
+    eval(env: Env): Value {
+        return this.value;
+    }
+}
+
+class PropExpr {
+    constructor(private readonly propName: PropName) {}
+    eval(env: Env): Value {
+        const value = env.event[this.propName];
+        if (value === undefined) {
+            return null;
+        }
+        return value;
+    }
+}
+
+class FuncExpr {
+    constructor(
+        private readonly func: (args: ReadonlyArray<Value>) => Value,
+        private readonly args: ReadonlyArray<Expr>
+    ) {}
+    eval(env: Env): Value {
+        return this.func(this.args.map(e => e.eval(env)));
+    }
+}
+
+class IfExpr {
+    constructor(
+        private readonly condExpr: Expr,
+        private readonly thenExpr: Expr,
+        private readonly elseExpr: Expr
+    ) {}
+    eval(env: Env): Value {
+        return this.condExpr.eval(env) ? this.thenExpr.eval(env) : this.elseExpr.eval(env);
+    }
+}
+
+
+
+
 
 interface Aggregator {
     readonly name: string;
     readonly currentValue: Value;
-    processEvent(event: Event): void;
+    processEvent(env: Env): void;
 }
 
-class LastValueAggregator implements Aggregator {
+class SelectIfAggregator implements Aggregator {
     private value: Value = null;
 
     constructor(
         readonly name: string,
-        private readonly eventName: EventName,
-        private readonly propertyName: string
+        private readonly condExpr: Expr,
+        private readonly valueExpr: Expr
     ) {}
 
     get currentValue(): Value {
         return this.value;
     }
 
-    processEvent(event: Event): void {
-        if (event.name === this.eventName) {
-            this.value = event[this.propertyName];
+    processEvent(env: Env): void {
+        if (this.condExpr.eval(env)) {
+            this.value = this.valueExpr.eval(env);
         }
     }
 }
@@ -319,17 +369,41 @@ class FunnelAggregator implements Aggregator {
 
     constructor(
         readonly name: string,
-        private readonly events: ReadonlyArray<EventName>
+        private readonly condExprs: ReadonlyArray<Expr>
     ) {}
 
     get currentValue(): Value {
         return this.counter;
     }
 
-    processEvent(event: Event): void {
-        const counter = this.counter % this.events.length;
-        if (event.name === this.events[counter]) {
+    processEvent(env: Env): void {
+        const condExpr = this.condExprs[this.counter % this.condExprs.length];
+        if (condExpr.eval(env)) {
             ++this.counter;
+        }
+    }
+}
+
+class StateMachineAggregator implements Aggregator {
+    private state: number = 0;
+
+    constructor(
+        readonly name: string,
+        private readonly stateExprs: ReadonlyArray<Expr>
+    ) {}
+
+    get currentValue(): Value {
+        return this.state;
+    }
+
+    processEvent(env: Env): void {
+        const stateExpr = this.stateExprs[this.state];
+        if (stateExpr) {
+            const nextState = stateExpr.eval(env);
+            if (typeof nextState !== "number") {
+                throw new Error("bad state: " + nextState);
+            }
+            this.state = nextState;
         }
     }
 }
@@ -345,12 +419,77 @@ class EventProcessor {
         return values;
     }
 
-    processEvent(event: Event): void {
+    processEvent(env: Env): void {
         for (const agg of this.aggregators) {
-            agg.processEvent(event);
+            agg.processEvent(env);
         }
     }
 }
+
+
+interface AnalyticsSpec {
+    aggregators: { [name: string]: any[] }
+}
+
+function toNumber(value: Value): number {
+    if (typeof value === "number") {
+        return value;
+    }
+    if (typeof value === "string") {
+        const num = parseFloat(value);
+        if (!isNaN(num)) {
+            return num;
+        }
+    }
+    throw new Error("expected number: " + value);
+}
+
+function parseArgs(form: ReadonlyArray<any>, minArgs: number): ReadonlyArray<Expr> {
+    if (form.length < minArgs + 1) {
+        throw new Error(`require ${minArgs} arguments, but found ${form.length - 1}`);
+    }
+    return form.slice(1).map(parseExpr);
+}
+
+function parseExpr(form: any): Expr {
+    if (typeof form == "number") {
+        return new ConstExpr(form);
+    }
+    if (typeof form == "boolean") {
+        return new ConstExpr(form);
+    }
+    if (typeof form === "string") {
+        if (form.startsWith("event.")) {
+            return new PropExpr(toPropName(form.slice(6)));
+        }
+        return new ConstExpr(form);
+    }
+    if (form === null) {
+        return new ConstExpr(null);
+    }
+    if (!Array.isArray(form)) {
+        throw new Error("unexpected expression form: " + form);
+    }
+    if (form.length === 0) {
+        throw new Error("didn't expect empty array");
+    }
+    switch (form[0]) {
+        case "if": return new IfExpr(parseExpr(form[1]), parseExpr(form[2]), parseExpr(form[3]));
+        case "=": return new FuncExpr(args => args.reduce((a, b) => a === b), parseArgs(form, 2));
+        case "!=": return new FuncExpr(args => args.reduce((a, b) => a !== b), parseArgs(form, 2));
+        case "and": return new FuncExpr(args => args.reduce((a, b) => a && b), parseArgs(form, 2));
+        case "or": return new FuncExpr(args => args.reduce((a, b) => a || b), parseArgs(form, 2));
+        case "+": return new FuncExpr(args => args.reduce((a, b) => toNumber(a) + toNumber(b)), parseArgs(form, 2));
+        case "-": return new FuncExpr(args => args.reduce((a, b) => toNumber(a) - toNumber(b)), parseArgs(form, 2));
+        case "*": return new FuncExpr(args => args.reduce((a, b) => toNumber(a) * toNumber(b)), parseArgs(form, 2));
+        case "/": return new FuncExpr(args => args.reduce((a, b) => toNumber(a) / toNumber(b)), parseArgs(form, 2));
+        case "%": return new FuncExpr(args => args.reduce((a, b) => toNumber(a) % toNumber(b)), parseArgs(form, 2));
+    }
+    throw new Error("unexpected form in operator position: " + form[0]);
+}
+
+
+
 
 function parseEventProcessor(spec: any): EventProcessor {
     const resultAggregators: Aggregator[] = [];
@@ -359,17 +498,23 @@ function parseEventProcessor(spec: any): EventProcessor {
     for (const aggName in aggregators) {
         const params = aggregators[aggName];
         switch (toAggregatorName(params[0])) {
-            case AggregatorName.last_value:
-                resultAggregators.push(new LastValueAggregator(
+            case AggregatorName.select_if:
+                resultAggregators.push(new SelectIfAggregator(
                     aggName,
-                    toEventName(params[1]),
-                    toPropName(params[2])
+                    parseExpr(params[1]),
+                    parseExpr(params[2])
                 ));
                 break;
             case AggregatorName.funnel:
                 resultAggregators.push(new FunnelAggregator(
                     aggName,
-                    params.slice(1).map(toEventName)
+                    params.slice(1).map(parseExpr)
+                ));
+                break;
+            case AggregatorName.state_machine:
+                resultAggregators.push(new StateMachineAggregator(
+                    aggName,
+                    params.slice(1).map(parseExpr)
                 ));
                 break;
         }
@@ -409,22 +554,43 @@ const events: Event[] = [
     },
 ];
 
+
+
+
+
 const processorSpec = {
     "aggregators": {
-        "platform": [ "last_value", "platform_changed", "platform" ],
-        "app_version": [ "last_value", "app_version_changed", "app_version" ],
+        "platform": [ "select_if", ["=", "event.name", "platform_changed"], "event.platform" ],
+        "app_version": [ "select_if", ["=", "event.name", "app_version_changed"], "event.app_version" ],
         "signup_funnel": [ "funnel",
-            "swipe_to_login",
-            "login_complete",
-            "postlogin_settings_complete",
-            "postlogin_tutorial_complete"
-        ]
+            ["=", "event.name", "swipe_to_login"],
+            ["and", ["=", "event.name", "login_complete"], "event.was_signup"],
+            ["=", "event.name", "postlogin_settings_complete"],
+            ["=", "event.name", "postlogin_tutorial_complete"]
+        ],
+        "signup_funnel2": [ "state_machine",
+            ["if", ["=", "event.name", "swipe_to_login"], 1, 0],
+            ["if", ["and", ["=", "event.name", "login_complete"], "event.was_signup"], 2, 1],
+            ["if", ["=", "event.name", "postlogin_settings_complete"], 3, 2],
+            ["if", ["=", "event.name", "postlogin_tutorial_complete"], 4, 3]
+        ],
     }
 };
 
+const expr = parseExpr(["if", ["=", "event.app_version", "1.1"], 10, 20]);
+const env: {event:Event} = {
+    event: {
+        name: EventName.app_version_changed,
+        time: 0,
+        app_version: "1.0"
+    }
+};
+console.log("VAL: " + expr.eval(env));
+
 const proc = parseEventProcessor(processorSpec);
 for (const e of events) {
-    proc.processEvent(e);
+    env.event = e;
+    proc.processEvent(env);
 }
 
 const values = proc.currentValues;
