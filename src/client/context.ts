@@ -1,5 +1,5 @@
 import { Aggregator, parseAggregator } from "./aggregator";
-import { Value, Env } from "./expr";
+import { Value, Env, Expr, parseExpr } from "./expr";
 import { deepEqual } from "../common/util";
 import { EventName } from "../common/defs";
 
@@ -11,34 +11,19 @@ export interface Event {
 
 export interface AnalyticsSpec {
     variables: { [name: string]: Value },
+    functions: { [name: string]: any[] },
     aggregators: { [name: string]: any[] },
     triggers: { [name: string]: any },
 }
 
-export class AnalyticsContext {
+export class AnalyticsContext implements Env {
     private readonly events: Event[] = [];
-    private readonly aggregators: { [name: string]: Aggregator } = {};
-    private variables: { readonly [name: string]: Value } = {};
-    private currentlyProcessingEvent?: Event;
-    private readonly env: Env;
 
-    constructor() {
-        const context = this;
-        this.env = {
-            readEventProp(name: string): Value | undefined {
-                if (!context.currentlyProcessingEvent) {
-                    throw new Error("only call during event processing");
-                }
-                return context.currentlyProcessingEvent[name];
-            },
-            readVariable(name: string): Value | undefined {
-                return context.variables[name];
-            },
-            readAggregator(name: string): Value | undefined {
-                return context.aggregators[name].currentValue;
-            }
-        }
-    }
+    currentlyProcessingEvent?: Event;
+    readonly aggregators: { [name: string]: Aggregator } = {};
+    variables: { readonly [name: string]: Value } = {};
+    readonly argStack: ReadonlyArray<Value>[] = [];
+    funcExprs: { [name: string]: Expr } = {};
 
     saveState(): { readonly [name: string]: any } {
         const savedState: { [name: string]: any[] } = {};
@@ -66,7 +51,7 @@ export class AnalyticsContext {
         this.events.push(event);
         this.currentlyProcessingEvent = event;
         for (const name in this.aggregators) {
-            this.aggregators[name].processEvent(this.env);
+            this.aggregators[name].processEvent(this);
         }
     }
 
@@ -81,7 +66,7 @@ export class AnalyticsContext {
         for (const event of this.events) {
             this.currentlyProcessingEvent = event;
             for (const name in this.aggregators) {
-                this.aggregators[name].processEvent(this.env);
+                this.aggregators[name].processEvent(this);
             }
         }
     }
@@ -92,6 +77,16 @@ export class AnalyticsContext {
         if (!deepEqual(spec.variables, this.variables)) {
             this.variables = spec.variables;
             needReplay = true;
+        }
+
+        this.funcExprs = {};
+        for (const name in spec.functions) {
+            if (!spec.functions.hasOwnProperty(name)) {
+                continue;
+            }
+            const form = spec.functions[name];
+            const expr = parseExpr(form);
+            this.funcExprs[name] = expr;
         }
 
         for (const name in spec.aggregators) {

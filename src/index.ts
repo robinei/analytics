@@ -42,9 +42,16 @@ let analyticsSpec: AnalyticsSpec = {
         album_layout_grid_is_default: true,
         album_layout_editable: true,
     },
+    functions: {
+        "fac": ["if", ["<", "arg.0", 2],
+                      1,
+                      ["*", "arg.0",
+                            ["func.fac", ["-", "arg.0", 1]]]]
+    },
     aggregators: {
-        test: [ "select_if", true, "variables.album_layout_grid_is_default" ],
-        test2: [ "select_if", true, "aggregators.test" ],
+        test: [ "select_if", true, "var.album_layout_grid_is_default" ],
+        test2: [ "select_if", true, "agg.test" ],
+        test3: [ "select_if", true, ["func.fac", 10] ],
         platform: [ "select_if", ["=", "event.name", "platform_changed"], "event.platform" ],
         app_version: [ "select_if", ["=", "event.name", "app_version_changed"], "event.app_version" ],
         signup_funnel: [ "funnel",
@@ -62,7 +69,7 @@ let analyticsSpec: AnalyticsSpec = {
     },
     triggers: {
         after_signup: {
-            condition: ["=", "aggregators.signup_funnel2", 4],
+            condition: ["=", "agg.signup_funnel2", 4],
             action: {
                 name: "alert",
                 message: "Hello World!"
